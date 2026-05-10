@@ -1,19 +1,14 @@
 # EmbedKit_Ganesh
 
-Name: Ganesh
+**Author:** Ganesh Ladaskar
 
-## Build
-
-```sh
+## Build Instructions
 gcc -Wall -std=c99 ringbuf.c -o ringbuf
-```
 
 ## Run
-
-```sh
 ./ringbuf
-```
 
 ## Modules
-
-- `ringbuf.c`: Fixed-size `uint8_t` circular buffer with write, read, count, full, and empty operations.
+- **ringbuf.c** — Fixed-capacity circular (ring) buffer for uint8_t data
+  with 8-byte capacity; supports ISR-safe write/read with overflow and
+  underflow protection. Uses bitwise AND for fast wrap-around without division.
