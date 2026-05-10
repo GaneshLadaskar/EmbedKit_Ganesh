@@ -1,136 +1,171 @@
 #include <stdio.h>
 #include <stdint.h>
 
-#define BUF_SIZE 8
-#define BUF_MASK (BUF_SIZE - 1)
+#define BUFFER_SIZE     8U               
+#define BUFFER_MASK     (BUFFER_SIZE - 1U) 
 
-#define RB_OK 0
-#define RB_FULL -1
-#define RB_EMPTY -2
+#define RB_OK           0
+#define RB_ERR_FULL    -1
+#define RB_ERR_EMPTY   -2
 
 typedef struct {
-    uint8_t buf[BUF_SIZE];
+    uint8_t data[BUFFER_SIZE];
     uint8_t head;
-    uint8_t tail;
     uint8_t count;
-} RingBuf;
+    uint8_t tail;
+} RingBuffer;
 
-void rb_init(RingBuf *rb)
+/* -----------------------------------------------------------------------
+ * Functions
+ * --------------------------------------------------------------------- */
+
+void ringbuf_init(RingBuffer *rb)
 {
-    rb->head = 0;
-    rb->tail = 0;
-    rb->count = 0;
+    rb->head  = 0U;
+    rb->tail  = 0U;
+    rb->count = 0U;
 }
 
-uint8_t rb_full(RingBuf *rb)
+uint8_t ringbuf_is_full(const RingBuffer *rb)
 {
-    return rb->count == BUF_SIZE;
+    return (rb->count == BUFFER_SIZE) ? 1U : 0U;
 }
 
-uint8_t rb_empty(RingBuf *rb)
+uint8_t ringbuf_is_empty(const RingBuffer *rb)
 {
-    return rb->count == 0;
+    return (rb->count == 0U) ? 1U : 0U;
 }
 
-uint8_t rb_count(RingBuf *rb)
+uint8_t ringbuf_count(const RingBuffer *rb)
 {
     return rb->count;
 }
 
-int rb_write(RingBuf *rb, uint8_t byte)
+
+int ringbuf_write(RingBuffer *rb, uint8_t byte)
 {
-    if (rb_full(rb)) {
-        return RB_FULL;
+    if (ringbuf_is_full(rb)) {
+        return RB_ERR_FULL;
     }
 
-    rb->buf[rb->head] = byte;
-    /*
-     * This works because BUF_SIZE is a power of 2. On small MCUs, bitwise AND
-     * is usually faster than modulo because it avoids a division operation.
-     */
-    rb->head = (rb->head + 1) & BUF_MASK;
+    rb->data[rb->head] = byte;
+    rb->head = (rb->head + 1U) & BUFFER_MASK;
     rb->count++;
 
     return RB_OK;
 }
 
-int rb_read(RingBuf *rb, uint8_t *out)
+
+int ringbuf_read(RingBuffer *rb, uint8_t *byte_out)
 {
-    if (rb_empty(rb)) {
-        return RB_EMPTY;
+    if (ringbuf_is_empty(rb)) {
+        return RB_ERR_EMPTY;
     }
 
-    *out = rb->buf[rb->tail];
-    rb->tail = (rb->tail + 1) & BUF_MASK;
+    *byte_out = rb->data[rb->tail];
+    rb->tail  = (rb->tail + 1U) & BUFFER_MASK;
     rb->count--;
 
     return RB_OK;
 }
 
+
 int main(void)
 {
-    RingBuf rb;
-    uint8_t byte;
-    int ret;
+    RingBuffer rb;
+    uint8_t    byte_value;
+    int        result;
+    uint8_t    index;
+
+    ringbuf_init(&rb);
+
+    printf("============================================================\n");
+    printf("  Ring Buffer Demo\n");
+    printf("  Capacity: %u bytes\n", BUFFER_SIZE);
+    printf("============================================================\n\n");
+
+
+    printf("[ Step 1 ] Writing 8 bytes to fill the buffer\n");
+
+    uint8_t fill_data[BUFFER_SIZE] = {
+        0x41, 0x42, 0x43, 0x44,
+        0x45, 0x46, 0x47, 0x48
+    };
+
+    for (index = 0U; index < BUFFER_SIZE; index++) {
+        result = ringbuf_write(&rb, fill_data[index]);
+        if (result == RB_OK) {
+            printf("  [WRITE] 0x%02X -> OK      (count = %u)%s\n",
+                fill_data[index],
+                ringbuf_count(&rb),
+                ringbuf_is_full(&rb) ? "  <-- FULL" : "");
+        } else {
+            printf("  [WRITE] 0x%02X -> FAIL    (buffer full)\n",
+                fill_data[index]);
+        }
+    }
+    printf("  Buffer full: %s  |  Count: %u\n\n",
+        ringbuf_is_full(&rb) ? "YES" : "NO",
+        ringbuf_count(&rb));
+
+    printf("[ Step 2 ] Attempting to write 0x99 into a full buffer\n");
+
+    result = ringbuf_write(&rb, 0x99U);
+    if (result == RB_ERR_FULL) {
+        printf("  [WRITE] 0x99 -> FAIL    (buffer full -- data protected)\n\n");
+    }
+
+    printf("[ Step 3 ] Reading 3 bytes out\n");
+
+    uint8_t read_count = 3U;
     uint8_t i;
-
-    rb_init(&rb);
-
-    for (i = 0; i < BUF_SIZE; i++) {
-        uint8_t value = 0x41 + i;
-
-        ret = rb_write(&rb, value);
-        printf("[WRITE] 0x%02X -> %s (count=%u)%s\n",
-               value,
-               ret == RB_OK ? "OK" : "FAIL",
-               rb_count(&rb),
-               rb_full(&rb) ? " FULL" : "");
-    }
-
-    printf("Buffer full: %s, count=%u\n",
-           rb_full(&rb) ? "yes" : "no",
-           rb_count(&rb));
-
-    ret = rb_write(&rb, 0x99);
-    if (ret == RB_FULL) {
-        printf("[WRITE] 0x99 -> FAIL (buffer full)\n");
-    }
-
-    for (i = 0; i < 3; i++) {
-        ret = rb_read(&rb, &byte);
-        if (ret == RB_OK) {
-            printf("[READ]  -> 0x%02X (count=%u)\n", byte, rb_count(&rb));
+    for (i = 0U; i < read_count; i++) {
+        result = ringbuf_read(&rb, &byte_value);
+        if (result == RB_OK) {
+            printf("  [READ]  -> 0x%02X         (count = %u)\n",
+                byte_value, ringbuf_count(&rb));
         }
     }
+    printf("  Count after 3 reads: %u\n\n", ringbuf_count(&rb));
 
-    printf("Count after 3 reads: %u\n", rb_count(&rb));
+    printf("[ Step 4 ] Writing 3 new bytes into the freed slots\n");
 
-    for (i = 0; i < 3; i++) {
-        uint8_t value = 0x49 + i;
-
-        ret = rb_write(&rb, value);
-        if (ret == RB_OK) {
-            printf("[WRITE] 0x%02X -> OK (count=%u)%s\n",
-                   value,
-                   rb_count(&rb),
-                   rb_full(&rb) ? " FULL" : "");
+    uint8_t new_data[] = { 0x49U, 0x4AU, 0x4BU };
+    uint8_t new_count  = 3U;
+    uint8_t j;
+    for (j = 0U; j < new_count; j++) {
+        result = ringbuf_write(&rb, new_data[j]);
+        if (result == RB_OK) {
+            printf("  [WRITE] 0x%02X -> OK      (count = %u)%s\n",
+                new_data[j],
+                ringbuf_count(&rb),
+                ringbuf_is_full(&rb) ? "  <-- FULL" : "");
         }
     }
+    printf("  Count after 3 writes: %u\n\n", ringbuf_count(&rb));
 
-    printf("Count after new writes: %u\n", rb_count(&rb));
+    printf("[ Step 5 ] Draining all remaining bytes\n");
 
-    while (!rb_empty(&rb)) {
-        ret = rb_read(&rb, &byte);
-        if (ret == RB_OK) {
-            printf("[READ]  -> 0x%02X (count=%u)\n", byte, rb_count(&rb));
+    while (!ringbuf_is_empty(&rb)) {
+        result = ringbuf_read(&rb, &byte_value);
+        if (result == RB_OK) {
+            printf("  [READ]  -> 0x%02X         (count = %u)\n",
+                byte_value, ringbuf_count(&rb));
         }
     }
-    printf("Buffer empty: %s\n", rb_empty(&rb) ? "yes" : "no");
+    printf("  Buffer empty: %s\n\n",
+        ringbuf_is_empty(&rb) ? "YES" : "NO");
 
-    ret = rb_read(&rb, &byte);
-    if (ret == RB_EMPTY) {
-        printf("[READ] (empty) -> FAIL (buffer empty)\n");
+    printf("[ Step 6 ] Attempting to read from an empty buffer\n");
+
+    result = ringbuf_read(&rb, &byte_value);
+    if (result == RB_ERR_EMPTY) {
+        printf("  [READ]  -> FAIL         (buffer empty -- no garbage returned)\n\n");
     }
+
+    printf("============================================================\n");
+    printf("  Demo complete\n");
+    printf("============================================================\n");
 
     return 0;
 }
